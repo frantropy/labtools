@@ -36,7 +36,7 @@ using clustsize_t = float;
 #include "gmxpre.h"
 
 #include <cmath>
-
+#include <execution>
 #include <algorithm>
 #include <functional> 
 #include <numeric>
@@ -760,15 +760,68 @@ static inline int is_flag_tolerance(const std::vector<clustsize_t> &v)
     std::vector<clustsize_t> rv(v.size());
     std::reverse_copy(v.begin(), v.end(), rv.begin());
 
+    // keep track of the minimum value
+    clustsize_t min=rv[0];
+    int danger=0;
+
     for ( int i = 0; i < rv.size()-1; ++i )
     {
-        // -10e3 could also be fine (to make the check weaker if needed)
-        // -10e5 could also be fine (to make the check stronger if needed)
-        if ((rv[i] - rv[i+1])<-10e-4f)
+        if(rv[i+1]<min) min=rv[i+1];
+        if((rv[i] - rv[i+1])<0.)
         {
-            return 2;
+           // in the beginning we accept at most one false point and only for small differences
+           if(i==0) {
+             danger=1;
+             if(((min-rv[i+1]))<-10e-05) return 2;
+           } 
+           if(danger&&i==1) return 2;
+           // -10e3 could also be fine (to make the check weaker if needed)
+           // -10e5 could also be fine (to make the check stronger if needed)
+           if(((min-rv[i+1]))<-10e-02) return 2;
         }
     }
+    return 0;
+}
+
+static inline int is_slope(const std::vector<clustsize_t> &v, const clustsize_t dx, const clustsize_t prob)
+{
+    std::vector<clustsize_t> slope(v.size()-2);
+    unsigned counter = 0;
+    clustsize_t min_d = 0;
+    for ( auto it = v.begin()+1; it < v.end()-1; ++it )
+    {
+        unsigned i = std::distance(v.begin(), it);
+        slope[counter] = (v[i+1] - v[i-1]) / (2.*dx);
+        if(!min_d&&v[i]>0.) min_d=(dx*static_cast<clustsize_t>(i)+0.5*dx);
+        counter++;
+    }
+
+    clustsize_t means=0., c=1., max_means=0., int_min_means=0.;
+    int danger=0;
+    for (int i=0; i < slope.size(); i++)
+    {
+        if(slope[i]!=0.) {
+           means += (slope[i]/prob-means)/c;
+           // if the means drop too much we are in danger; is not a single gaussian
+           if(max_means>10. && max_means>means) {
+              if(!danger) int_min_means = means;
+              else {
+                // if the mean continues to drop just go on checking it
+                if(int_min_means>=means) int_min_means=means;
+                // if the mean start again to increase GOT IT!
+                else return 1;
+              } 
+              danger=1;
+           }
+           if(means>max_means) max_means = means;
+           c++;
+        }
+    }
+    // range 90-130, weaker-stronger
+    // this number also depend from the sigma
+    //if(means<(65.*(1.+min_d))) return 1;
+    if(means<(90.*(1.+(min_d-0.3)))) return 1;
+
     return 0;
 }
 
@@ -799,87 +852,54 @@ static inline clustsize_t calc_sigma(const std::vector<clustsize_t> &v, const cl
     return sigma;
 }
 
-static inline clustsize_t is_dist(const std::vector<clustsize_t> &v, const clustsize_t dx, const clustsize_t sigma, const int flag)
+static inline double is_dist(const std::vector<clustsize_t> &x, const double dx, const double sigma, const int flag)
 {
-    std::vector<clustsize_t> rv(v.size());
+    std::vector<double> v(x.size());
+    std::vector<double> rv(v.size());
+    auto to_double = [](const clustsize_t i) { return static_cast<double>(i); };
+    std::transform(std::cbegin(x), std::cend(x), std::begin(v), to_double);
+    // std::vector<double> rv(v.size());
     std::reverse_copy(v.begin(), v.end(), rv.begin());
-    auto j3 = std::adjacent_find(rv.begin(), rv.end(), [](clustsize_t a, clustsize_t b) {return (a<=b) && (b!=0);});
+    auto j3 = std::adjacent_find(rv.begin(), rv.end(), [](double a, double b) {return (a<=b) && (b!=0);});
     auto first_val = find_if( std::begin(v), std::end(v), [](auto x) { return x != 0; });
     auto last_val = find_if( std::rbegin(v), std::rend(v), [](auto x) { return x != 0; });
     auto until = v.end()-std::distance(rv.begin(), j3);
-    clustsize_t mind = (dx*static_cast<clustsize_t>(std::distance(v.begin(),first_val))+0.5*dx);
-    clustsize_t maxd = std::min((dx*static_cast<clustsize_t>(std::distance(v.begin(),(last_val+1).base()))+0.5*dx),(dx*static_cast<clustsize_t>(std::distance(v.begin(),until))+0.5*dx));
-    clustsize_t sigma_cut = (maxd-mind)/8.; 
+    double mind = (dx*static_cast<double>(std::distance(v.begin(),first_val))+0.5*dx);
+    double maxd = std::min((dx*static_cast<double>(std::distance(v.begin(),(last_val+1).base()))+0.5*dx),(dx*static_cast<double>(std::distance(v.begin(),until))+0.5*dx));
+    double sigma_cut = (maxd-mind)/8.; 
     if (sigma > sigma_cut) until = until - std::distance(first_val, until)/2;
 
     if(flag==2) {
-       clustsize_t d12 = 0.;
-       clustsize_t norm = 0.;
+       double d12 = 0.;
+       double norm = 0.;
        for(auto it = v.begin()+1; it != until; ++it) { 
           unsigned i = std::distance(v.begin(), it);
           if(v[i]>0.) {
-             clustsize_t d = (dx*static_cast<clustsize_t>(i)+0.5*dx);
-             d12+=v[i]*std::pow(1.f/d,12.f);
+             double d = (dx*static_cast<double>(i)+0.5*dx);
+             d12+=v[i]*std::pow(1./d,12.);
              norm+=v[i];
           }
        }
        if (norm == 0.) norm = 1.;
-       d12 = (d12>0. ? std::pow(d12/norm, -1.f/12.f):0.);
+       d12 = (d12>0. ? std::pow(d12/norm, -1./12.):0.);
        return d12;
     } else {
-      clustsize_t dexp = 0.;
-      clustsize_t norm = 0.;
+      double dexp = 0.;
+      double norm = 0.;
       for(auto it = v.begin()+1; it != v.end(); ++it) { 
          unsigned i = std::distance(v.begin(), it);
          if(v[i]>0.) {
-            clustsize_t d = (dx*static_cast<clustsize_t>(i)+0.5*dx);
-            dexp+=v[i]*std::exp(1./d/0.02);
+            double d = (dx*static_cast<double>(i)+0.5*dx);
+            dexp+=v[i]*std::exp(1./d/0.05);
             norm+=v[i];
          }
       }
       if (norm == 0.) norm = 1.;
-      dexp = (dexp>0. ? (1./0.02)/std::log(dexp/norm):0.);
+      dexp = (dexp>0. ? (1./0.05)/std::log(dexp/norm):0.);
       return dexp;
     }
 }
 
-static inline int is_slope(const std::vector<clustsize_t> &v, const clustsize_t dx, const clustsize_t prob)
-{
-    std::vector<clustsize_t> slope(v.size()-2);
-    unsigned counter = 0;
-    for ( auto it = v.begin()+1; it < v.end()-1; ++it )
-    {
-        unsigned i = std::distance(v.begin(), it);
-        slope[counter] = (v[i+1] - v[i-1]) / (2.f*dx);
-        counter++;
-    }
-
-    clustsize_t means=0., c=1., max_means=0., int_min_means=0.;
-    int danger=0;
-    for (int i=0; i < slope.size(); i++)
-    {
-        if(slope[i]!=0.) {
-           means += (slope[i]/prob-means)/c;
-           // if the means drop too much we are in danger; is not a single gaussian
-           if(max_means>20. && 0.97*max_means>means) {
-              if(!danger) int_min_means = means;
-              else {
-                // if the mean continues to drop just go on checking it
-                if(int_min_means>=means) int_min_means=means;
-                // if the mean start again to increase GOT IT!
-                else return 1;
-              } 
-              danger=1;
-           }
-           if(means>max_means) max_means = means;
-           c++;
-        }
-    }
-    // range 100-120, weaker-stronger 
-    if(means<90.) return 1;
-
-    return 0;
-}
 
 
 #define NBINS 4
@@ -952,10 +972,10 @@ static void do_interm_mat(const char*             trx,
     std::vector<int> start_index;
     std::vector<int> mol_id;
     mol_id.push_back(0);
-    std::vector<double> inv_num_mol;
+    std::vector<clustsize_t> inv_num_mol;
     start_index.push_back(0); 
     num_unique_molecules=0;
-    inv_num_mol.push_back(1./(static_cast<double>(num_mol[num_unique_molecules])));
+    inv_num_mol.push_back(1./(static_cast<clustsize_t>(num_mol[num_unique_molecules])));
 
     for(int i=1; i<nindex; i++) {
        if(mols.block(i).end()-mols.block(i-1).end()==natmol2[num_unique_molecules]) {
@@ -965,7 +985,7 @@ static void do_interm_mat(const char*             trx,
           num_unique_molecules++;
        }
        mol_id.push_back(num_unique_molecules);
-       inv_num_mol.push_back(1./static_cast<double>(num_mol[num_unique_molecules]));
+       inv_num_mol.push_back(1./static_cast<clustsize_t>(num_mol[num_unique_molecules]));
     }
 
     printf("number of different molecules %lu\n", natmol2.size());
@@ -1088,14 +1108,14 @@ static void do_interm_mat(const char*             trx,
                             if(dx2 < cut_sig_2) {
                                 if(i!=j) { // intermolecular
                                    if(mol_id[i]==mol_id[j]) { // inter same molecule specie
-                                      interm_same_mat_mdist[a_i][a_j] = std::min(interm_same_mat_mdist[a_i][a_j], std::sqrt(dx2));
-                                      interm_same_mat_mdist[a_j][a_i] = interm_same_mat_mdist[a_i][a_j];
+                                      interm_same_mat_mdist[a_i][a_j] = std::min(interm_same_mat_mdist[a_i][a_j], dx2);
+                                    //   interm_same_mat_mdist[a_j][a_i] = interm_same_mat_mdist[a_i][a_j];
                                    } else { // inter cross molecule specie
-                                      interm_cross_mat_mdist[cross_index[mol_id[i]][mol_id[j]]][a_i][a_j] = std::min(interm_cross_mat_mdist[cross_index[mol_id[i]][mol_id[j]]][a_i][a_j], std::sqrt(dx2));
+                                      interm_cross_mat_mdist[cross_index[mol_id[i]][mol_id[j]]][a_i][a_j] = std::min(interm_cross_mat_mdist[cross_index[mol_id[i]][mol_id[j]]][a_i][a_j], dx2);
                                    }
                                 } else { // intramolecular
-                                   intram_mat_mdist[a_i][a_j] = std::min(intram_mat_mdist[a_i][a_j], std::sqrt(dx2));
-                                   intram_mat_mdist[a_j][a_i] = intram_mat_mdist[a_i][a_j];
+                                   intram_mat_mdist[a_i][a_j] = std::min(intram_mat_mdist[a_i][a_j], dx2);
+                                //    intram_mat_mdist[a_j][a_i] = intram_mat_mdist[a_i][a_j];
                                 }
                             }
                             a_j++;
@@ -1107,12 +1127,12 @@ static void do_interm_mat(const char*             trx,
                 for(int ii=0; ii<natmol2[mol_id[i]]; ii++) {
                    for(int jj=ii; jj<natmol2[mol_id[i]]; jj++) {
                       if(interm_same_mat_mdist[ii][jj]<100.) {
-                        kernel_density_estimator(interm_same_mat_density[mol_id[i]][ii][jj], density_bins, interm_same_mat_mdist[ii][jj], inv_num_mol[i]);
-                        interm_same_mat_density[mol_id[i]][jj][ii] = interm_same_mat_density[mol_id[i]][ii][jj];
+                        kernel_density_estimator(interm_same_mat_density[mol_id[i]][ii][jj], density_bins, std::sqrt(interm_same_mat_mdist[ii][jj]), inv_num_mol[i]);
+                        //interm_same_mat_density[mol_id[i]][jj][ii] = interm_same_mat_density[mol_id[i]][ii][jj];
                       } 
                       if(intram_mat_mdist[ii][jj]<100.) {
-                        kernel_density_estimator(intram_mat_density[mol_id[i]][ii][jj], density_bins, intram_mat_mdist[ii][jj], inv_num_mol[i]);
-                        intram_mat_density[mol_id[i]][jj][ii] = intram_mat_density[mol_id[i]][ii][jj];
+                        kernel_density_estimator(intram_mat_density[mol_id[i]][ii][jj], density_bins, std::sqrt(intram_mat_mdist[ii][jj]), inv_num_mol[i]);
+                        //intram_mat_density[mol_id[i]][jj][ii] = intram_mat_density[mol_id[i]][ii][jj];
                       }
                    }
                 }
@@ -1120,7 +1140,7 @@ static void do_interm_mat(const char*             trx,
                    for(int ii=0; ii<natmol2[mol_id[i]]; ii++) {
                       for(int jj=0; jj<natmol2[mol_id[j]]; jj++) {
                          if(interm_cross_mat_mdist[cross_index[mol_id[i]][j]][ii][jj]<100.) {
-                           kernel_density_estimator(interm_cross_mat_density[cross_index[mol_id[i]][j]][ii][jj], density_bins, interm_cross_mat_mdist[cross_index[mol_id[i]][j]][ii][jj],std::max(inv_num_mol[i],inv_num_mol[j]));
+                           kernel_density_estimator(interm_cross_mat_density[cross_index[mol_id[i]][j]][ii][jj], density_bins, std::sqrt(interm_cross_mat_mdist[cross_index[mol_id[i]][j]][ii][jj]),std::max(inv_num_mol[i],inv_num_mol[j]));
                          }
                       }
                    }
@@ -1139,13 +1159,17 @@ static void do_interm_mat(const char*             trx,
     // normalisations
     clustsize_t norm = 1.f/n_x;
 
-    #pragma omp parallel for num_threads(2)
     for(std::size_t i=0; i<natmol2.size(); i++) {
        for(int ii=0; ii<natmol2[i]; ii++) {
-          for(int jj=0; jj<natmol2[i]; jj++) {
-             std::transform(interm_same_mat_density[i][ii][jj].begin(), interm_same_mat_density[i][ii][jj].end(), interm_same_mat_density[i][ii][jj].begin(), [&norm](auto& c){return c*norm;});
+          for(int jj=ii; jj<natmol2[i]; jj++) {
+                         std::transform(interm_same_mat_density[i][ii][jj].begin(), interm_same_mat_density[i][ii][jj].end(), interm_same_mat_density[i][ii][jj].begin(), [&norm](auto& c){return c*norm;});
              std::transform(intram_mat_density[i][ii][jj].begin(), intram_mat_density[i][ii][jj].end(), intram_mat_density[i][ii][jj].begin(), [&norm](auto& c){return c*norm;});
-          }
+
+            //  std::transform(std::execution::par_unseq, interm_same_mat_density[i][ii][jj].begin(), interm_same_mat_density[i][ii][jj].end(), interm_same_mat_density[i][ii][jj].begin(), [&norm](auto& c){return c*norm;});
+            //  std::transform(std::execution::par_unseq, intram_mat_density[i][ii][jj].begin(), intram_mat_density[i][ii][jj].end(), intram_mat_density[i][ii][jj].begin(), [&norm](auto& c){return c*norm;});
+            interm_same_mat_density[i][jj][ii]=interm_same_mat_density[i][ii][jj];
+             intram_mat_density[i][jj][ii]=intram_mat_density[i][ii][jj];          
+             }
        }
        for(std::size_t j=i+1; j<natmol2.size(); j++) {
           for(int ii=0; ii<natmol2[i]; ii++) {
