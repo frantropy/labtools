@@ -186,73 +186,6 @@ def calculate_angle_freq(angles):
 
     return angles
 
-def repartition_masses(h_bonds, h_urey_bradley, h_angles, masses, original_masses, dt):
-    calc_mass_add_threshold = lambda o1, o2, n1, n2: (n1 + n2) - (o1 + o2) > MASS_ADD_THRESHOLD
-    for i, _ in h_bonds.iterrows():
-        if 1 / freq(h_bonds.at[i, 'k'], red_mass(masses[h_bonds.at[i, 'ai']], masses[h_bonds.at[i, 'aj']])) > BOND_PERIOD * dt:
-            continue
-        if (masses[h_bonds.at[i, 'ai']] + masses[h_bonds.at[i, 'aj']]) - (original_masses[h_bonds.at[i, 'ai']] + original_masses[h_bonds.at[i, 'aj']]) > MASS_ADD_THRESHOLD:
-            h_bonds.at[i, 'k'] -= K_STEP
-        else:
-            if h_bonds.at[i, 'ni'].startswith('H'):
-                masses[h_bonds.at[i, 'ai']] += MASS_STEP
-                masses[h_bonds.at[i, 'aj']] -= MASS_STEP
-                if masses[h_bonds.at[i, 'aj']] - masses[h_bonds.at[i, 'ai']] < MASS_DIFFERENCE_THRESHOLD:
-                    masses[h_bonds.at[i, 'aj']] += MASS_STEP
-            if h_bonds.at[i, 'nj'].startswith('H'):
-                masses[h_bonds.at[i, 'aj']] += MASS_STEP
-                masses[h_bonds.at[i, 'ai']] -= MASS_STEP
-                if masses[h_bonds.at[i, 'ai']] - masses[h_bonds.at[i, 'aj']] < MASS_DIFFERENCE_THRESHOLD:
-                    masses[h_bonds.at[i, 'ai']] += MASS_STEP
-
-    # check for mass_add_threshold
-    for i, _ in h_bonds.iterrows():
-        if calc_mass_add_threshold(masses[h_bonds.at[i, 'ai']], masses[h_bonds.at[i, 'aj']], original_masses[h_bonds.at[i, 'ai']], original_masses[h_bonds.at[i, 'aj']]):
-            print(f'Mass add breach for bond {i} with ai = {h_bonds.at[i, "ai"]} and aj = {h_bonds.at[i, "aj"]}...')
-
-    for i, _ in h_urey_bradley.iterrows():
-        if 1 / freq(h_urey_bradley.at[i, 'k'], red_mass(masses[h_urey_bradley.at[i, 'ai']], masses[h_urey_bradley.at[i, 'aj']])) > BOND_PERIOD * dt:
-            continue
-        if original_masses[h_bonds.at[i, 'ai']] - masses[h_bonds.at[i, 'ai']] > MASS_ADD_THRESHOLD or original_masses[h_bonds.at[i, 'aj']] - masses[h_bonds.at[i, 'aj']] > MASS_ADD_THRESHOLD:
-            h_bonds.at[i, 'k'] -= K_STEP
-        else:
-            if h_urey_bradley.at[i, 'ni'].startswith('H'):
-                masses[h_urey_bradley.at[i, 'ai']] += MASS_STEP
-                masses[h_urey_bradley.at[i, 'aj']] -= MASS_STEP
-                if masses[h_urey_bradley.at[i, 'aj']] - masses[h_urey_bradley.at[i, 'ai']] < MASS_DIFFERENCE_THRESHOLD:
-                    masses[h_urey_bradley.at[i, 'aj']] += MASS_STEP
-            if h_urey_bradley.at[i, 'nj'].startswith('H'):
-                masses[h_urey_bradley.at[i, 'aj']] += MASS_STEP
-                masses[h_urey_bradley.at[i, 'ai']] -= MASS_STEP
-                if masses[h_urey_bradley.at[i, 'ai']] - masses[h_urey_bradley.at[i, 'aj']] < MASS_DIFFERENCE_THRESHOLD:
-                    masses[h_urey_bradley.at[i, 'ai']] += MASS_STEP
-
-    # check for mass_add_threshold
-    for i, _ in h_urey_bradley.iterrows():
-        if calc_mass_add_threshold(masses[h_urey_bradley.at[i, 'ai']], masses[h_urey_bradley.at[i, 'aj']], original_masses[h_urey_bradley.at[i, 'ai']], original_masses[h_urey_bradley.at[i, 'aj']]):
-            print(f'Mass add breach for Urey-Bradley term {i} with ai = {h_urey_bradley.at[i, "ai"]} and aj = {h_urey_bradley.at[i, "aj"]}...')
-
-    for i, _ in h_angles.iterrows():
-        if angular_freq(h_angles.at[i, 'k'], red_mass(masses[h_angles.at[i, 'ai']], masses[h_angles.at[i, 'ak']])) * dt < MAX_ANGLE:
-            continue
-        if h_angles.at[i, 'ni'].startswith('H'):
-            masses[h_angles.at[i, 'ai']] += MASS_STEP
-            masses[h_angles.at[i, 'aj']] -= MASS_STEP
-            if masses[h_angles.at[i, 'aj']] - masses[h_angles.at[i, 'ai']] < MASS_DIFFERENCE_THRESHOLD:
-                masses[h_angles.at[i, 'aj']] += MASS_STEP
-        if h_angles.at[i, 'nk'].startswith('H'):
-            masses[h_angles.at[i, 'ak']] += MASS_STEP
-            masses[h_angles.at[i, 'aj']] -= MASS_STEP
-            if masses[h_angles.at[i, 'aj']] - masses[h_angles.at[i, 'ak']] < MASS_DIFFERENCE_THRESHOLD:
-                masses[h_angles.at[i, 'aj']] += MASS_STEP
-
-    # check for mass_add_threshold
-    for i, _ in h_angles.iterrows():
-        if calc_mass_add_threshold(masses[h_angles.at[i, 'ai']], masses[h_angles.at[i, 'aj']], original_masses[h_angles.at[i, 'ai']], original_masses[h_angles.at[i, 'aj']]):
-            print(f'Mass add breach for angle {i} with ai = {h_angles.at[i, "ai"]} and aj = {h_angles.at[i, "aj"]}...')
-
-    return masses, h_bonds, h_urey_bradley, h_angles
-
 def symmetrize_masses(h_bonds, masses):
     for i, _ in h_bonds.iterrows():
         if not h_bonds.at[i, 'ni'].startswith('H'):
@@ -288,6 +221,14 @@ def synchronize_masses(df, atom_mass_pairs, masses):
             
     return new_df
 
+def synchronize_k(df, atom_sets, ks):
+    new_df = df.copy()
+    for i, row in df.iterrows():
+        key = '-'.join([str(row[atom]) for atom in atom_sets])
+        new_df.loc[i, 'k'] = ks[key]
+
+    return new_df
+
 def hmr_run(topol, dt):
     """
     TODO return constants in some way
@@ -311,16 +252,24 @@ def hmr_run(topol, dt):
     angles = angles[~angles['ni'].str.contains('W') & ~angles['nj'].str.contains('W') & ~angles['nk'].str.contains('W')] # remove water angles
     angles = calculate_angle_freq(angles)
     h_angles = angles[angles['ni'].str.startswith('H') | angles['nk'].str.startswith('H')]
-    # h_angles, _ = check_time_step(h_angles, dt)
     h_angles = h_angles[ 1 / h_angles['freq'] >= MAX_ANGLE ]
 
     print('Getting h-angle masses...')
     masses = get_masses(bonds)
     original_masses = { k: v for k, v in bonds[['ai', 'mi']].drop_duplicates().values }
     original_masses = {**original_masses, **{ k: v for k, v in bonds[['aj', 'mj']].drop_duplicates().values }}
-    mass_counter = original_masses.copy()
+    mass_counter = { k: 0 for k in masses.keys() }
     for k in mass_counter.keys():
         mass_counter[k] = 0
+    bond_k = {}
+    urey_bradley_k = {}
+    angle_k = {}
+    for i, row in bonds.iterrows():
+        bond_k[f"{row['ai']}-{row['aj']}"] = row['k']
+    for i, row in urey_bradley.iterrows():
+        urey_bradley_k[f"{row['ai']}-{row['aj']}"] = row['k']
+    for i, row in angles.iterrows():
+        angle_k[f"{row['ai']}-{row['aj']}-{row['ak']}"] = row['k']
 
     print('Begining main routine...')
     while not h_angles.empty:
@@ -328,9 +277,8 @@ def hmr_run(topol, dt):
         for i, _ in h_angles.iterrows():
             if angular_freq(h_angles.at[i, 'k'], red_mass(masses[h_angles.at[i, 'ai']], masses[h_angles.at[i, 'ak']])) * dt < MAX_ANGLE:
                 continue
-            # if (masses[h_angles.at[i, 'ai']] + masses[h_angles.at[i, 'ak']]) - (original_masses[h_angles.at[i, 'ai']] + original_masses[h_angles.at[i, 'ak']]) > MASS_ADD_THRESHOLD:
             if mass_counter[h_angles.at[i, 'ai']] >= MASS_ADD_THRESHOLD or mass_counter[h_angles.at[i, 'ak']] >= MASS_ADD_THRESHOLD:
-                h_angles.at[i, 'k'] -= K_STEP
+                angle_k[f"{h_angles.at[i, 'ai']}-{h_angles.at[i, 'aj']}-{h_angles.at[i, 'ak']}"] -= K_STEP
             else:
                 if h_angles.at[i, 'ni'].startswith('H'):
                     masses[h_angles.at[i, 'ai']] += MASS_STEP
@@ -346,78 +294,44 @@ def hmr_run(topol, dt):
                         mass_counter[h_angles.at[i, 'aj']] += MASS_STEP
 
         h_angles = synchronize_masses(h_angles, [('ai', 'mi'), ('aj', 'mj'), ('ak', 'mk')], masses)
+        h_angles = synchronize_k(h_angles, ['ai', 'aj', 'ak'], angle_k)
         masses = symmetrize_masses(h_angles, masses)
-        # for i, row in h_angles.iterrows():
-        #     h_angles.loc[i, 'mi'] = masses[row['ai']]
-        #     h_angles.loc[i, 'mj'] = masses[row['aj']]
-        #     h_angles.loc[i, 'mk'] = masses[row['ak']]
-
-
         h_angles = calculate_angle_freq(h_angles)
-        h_angles = h_angles[ 1 / h_angles['freq'] >= MAX_ANGLE ]
-
-    # check for mass_add_threshold
-    for i, _ in h_angles.iterrows():
-        if (masses[h_angles.at[i, 'ai']] + masses[h_angles.at[i, 'ak']]) - (original_masses[h_angles.at[i, 'ai']] + original_masses[h_angles.at[i, 'ak']]) > MASS_ADD_THRESHOLD:
-            print(f'Mass add breach for angle {i} with ai = {h_angles.at[i, "ai"]} and ak = {h_angles.at[i, "ak"]}...')
+        h_angles = h_angles[ 1 / h_angles['freq'] >= dt * MAX_ANGLE ]
 
     while not h_bonds.empty:
         print(f'Remainig bonds: {h_bonds.shape[0]}', end='\r')
-        # masses, h_bonds, h_urey_bradley, h_angles = repartition_masses(h_bonds, h_urey_bradley, h_angles, masses, original_masses, dt)
         for i, _ in h_bonds.iterrows():
-            print(f'Doing for bond {i} with ai = {h_bonds.at[i, "ai"]} and aj = {h_bonds.at[i, "aj"]}...')
-            print(f'mass is {masses[h_bonds.at[i, "ai"]]} and {masses[h_bonds.at[i, "aj"]]}')
             if 1 / freq(h_bonds.at[i, 'k'], red_mass(masses[h_bonds.at[i, 'ai']], masses[h_bonds.at[i, 'aj']])) > BOND_PERIOD * dt:
                 continue
-            print(f'Current masses: {masses[h_bonds.at[i, "ai"]]} and {masses[h_bonds.at[i, "aj"]]}')
-            print(f'Original masses: {original_masses[h_bonds.at[i, "ai"]]} and {original_masses[h_bonds.at[i, "aj"]]}')
-            print(f'Mass difference: {(masses[h_bonds.at[i, "ai"]] + masses[h_bonds.at[i, "aj"]]) - (original_masses[h_bonds.at[i, "ai"]] + original_masses[h_bonds.at[i, "aj"]])}')
-            # if (masses[h_bonds.at[i, 'ai']] + masses[h_bonds.at[i, 'aj']]) - (original_masses[h_bonds.at[i, 'ai']] + original_masses[h_bonds.at[i, 'aj']]) > MASS_ADD_THRESHOLD:
             if mass_counter[h_bonds.at[i, 'ai']] >= MASS_ADD_THRESHOLD or mass_counter[h_bonds.at[i, 'aj']] >= MASS_ADD_THRESHOLD:
-                print(f'Decreasing k for {i} from {h_bonds.at[i, "k"]} to {h_bonds.at[i, "k"] - K_STEP}')
-                h_bonds.at[i, 'k'] -= K_STEP
+                bond_k[f"{h_bonds.at[i, 'ai']}-{h_bonds.at[i, 'aj']}"] -= K_STEP
             else:
                 if h_bonds.at[i, 'ni'].startswith('H'):
-                    print(f'Increasing mass for {h_bonds.at[i, "ai"]} and decreasing for {h_bonds.at[i, "aj"]}')
-                    print(f'Current masses: {masses[h_bonds.at[i, "ai"]]} and {masses[h_bonds.at[i, "aj"]]}')
                     masses[h_bonds.at[i, 'ai']] += MASS_STEP
                     masses[h_bonds.at[i, 'aj']] -= MASS_STEP
-                    print(f'New masses: {masses[h_bonds.at[i, "ai"]]} and {masses[h_bonds.at[i, "aj"]]}')
                     if masses[h_bonds.at[i, 'aj']] - masses[h_bonds.at[i, 'ai']] < MASS_DIFFERENCE_THRESHOLD:
-                        print(f'Mass difference threshold breach for bond {i}... increasing mass for {h_bonds.at[i, "aj"]} by {MASS_STEP}')
                         masses[h_bonds.at[i, 'aj']] += MASS_STEP
                         mass_counter[h_bonds.at[i, 'aj']] += MASS_STEP
                 if h_bonds.at[i, 'nj'].startswith('H'):
-                    print(f'Increasing mass for {h_bonds.at[i, "aj"]} and decreasing for {h_bonds.at[i, "ai"]}')
-                    print(f'Current masses: {masses[h_bonds.at[i, "ai"]]} and {masses[h_bonds.at[i, "aj"]]}')
                     masses[h_bonds.at[i, 'aj']] += MASS_STEP
                     masses[h_bonds.at[i, 'ai']] -= MASS_STEP
-                    print(f'New masses: {masses[h_bonds.at[i, "ai"]]} and {masses[h_bonds.at[i, "aj"]]}')
                     if masses[h_bonds.at[i, 'ai']] - masses[h_bonds.at[i, 'aj']] < MASS_DIFFERENCE_THRESHOLD:
-                        print(f'Mass difference threshold breach for bond {i}... increasing mass for {h_bonds.at[i, "ai"]} by {MASS_STEP}')
                         masses[h_bonds.at[i, 'ai']] += MASS_STEP
                         mass_counter[h_bonds.at[i, 'ai']] += MASS_STEP
 
         h_bonds = synchronize_masses(h_bonds, [('ai', 'mi'), ('aj', 'mj')], masses)
+        h_bonds = synchronize_k(h_bonds, ['ai', 'aj'], bond_k)
         h_bonds = calculate_bond_freq(h_bonds)
         h_bonds = h_bonds[ 1 / h_bonds['freq'] <= BOND_PERIOD * dt ]
 
-    # check for mass_add_threshold
-    for i, _ in h_bonds.iterrows():
-        if (masses[h_bonds.at[i, 'ai']] + masses[h_bonds.at[i, 'aj']]) - (original_masses[h_bonds.at[i, 'ai']] + original_masses[h_bonds.at[i, 'aj']]) > MASS_ADD_THRESHOLD:
-            print(f'Mass add breach for bond {i} with ai = {h_bonds.at[i, "ai"]} and aj = {h_bonds.at[i, "aj"]}...')
-
     while not h_urey_bradley.empty:
-        print(f'Remainig Urey-Bradley terms: {h_urey_bradley.shape[0]}')
+        print(f'Remainig Urey-Bradley terms: {h_urey_bradley.shape[0]}', end='\r')
         for i, _ in h_urey_bradley.iterrows():
-            print(f'Doing for Urey-Bradley term {i} with ai = {h_urey_bradley.at[i, "ai"]} and aj = {h_urey_bradley.at[i, "aj"]}...')
-            print(f'mass is {masses[h_urey_bradley.at[i, "ai"]]} and {masses[h_urey_bradley.at[i, "aj"]]}')
             if 1 / freq(h_urey_bradley.at[i, 'k'], red_mass(masses[h_urey_bradley.at[i, 'ai']], masses[h_urey_bradley.at[i, 'aj']])) > BOND_PERIOD * dt:
                 continue
-            # if (masses[h_urey_bradley.at[i, 'ai']] + masses[h_urey_bradley.at[i, 'aj']]) - (original_masses[h_urey_bradley.at[i, 'ai']] + original_masses[h_urey_bradley.at[i, 'aj']]) > MASS_ADD_THRESHOLD:
             if mass_counter[h_urey_bradley.at[i, 'ai']] >= MASS_ADD_THRESHOLD or mass_counter[h_urey_bradley.at[i, 'aj']] >= MASS_ADD_THRESHOLD:
-                print(f'Decreasing k for {i} from {h_urey_bradley.at[i, "k"]} to {h_urey_bradley.at[i, "k"] - K_STEP}')
-                h_urey_bradley.at[i, 'k'] -= K_STEP
+                urey_bradley_k[f"{h_urey_bradley.at[i, 'ai']}-{h_urey_bradley.at[i, 'aj']}"] -= K_STEP
             else:
                 if h_urey_bradley.at[i, 'ni'].startswith('H'):
                     masses[h_urey_bradley.at[i, 'ai']] += MASS_STEP
@@ -433,45 +347,9 @@ def hmr_run(topol, dt):
                         mass_counter[h_urey_bradley.at[i, 'ai']] += MASS_STEP
     
         h_urey_bradley = synchronize_masses(h_urey_bradley, [('ai', 'mi'), ('aj', 'mj')], masses)
+        h_urey_bradley = synchronize_k(h_urey_bradley, ['ai', 'aj'], urey_bradley_k)
         h_urey_bradley = calculate_bond_freq(h_urey_bradley)
         h_urey_bradley = h_urey_bradley[ 1 / h_urey_bradley['freq'] <= BOND_PERIOD * dt ]
-
-    # check for mass_add_threshold
-    for i, _ in h_urey_bradley.iterrows():
-        if (masses[h_urey_bradley.at[i, 'ai']] + masses[h_urey_bradley.at[i, 'aj']]) - (original_masses[h_urey_bradley.at[i, 'ai']] + original_masses[h_urey_bradley.at[i, 'aj']]) > MASS_ADD_THRESHOLD:
-            print(f'Mass add breach for Urey-Bradley term {i} with ai = {h_urey_bradley.at[i, "ai"]} and aj = {h_urey_bradley.at[i, "aj"]}...')
-    # h_bonds = calculate_bond_freq(h_bonds)
-    # h_bonds = h_bonds[ 1 / h_bonds['freq'] <= BOND_PERIOD * dt ]
-
-    # print('Repartitioning remaining bonds...')
-    # while not h_bonds.empty:
-    #     print(f'Remainig bonds: {h_bonds.shape[0]}', end='\r')
-    #     for i, _ in h_bonds.iterrows():
-    #         if 1 / freq(h_bonds.at[i, 'k'], red_mass(masses[h_bonds.at[i, 'ai']], masses[h_bonds.at[i, 'aj']])) > BOND_PERIOD * dt:
-    #             continue
-    #         if (masses[h_bonds.at[i, 'ai']] + masses[h_bonds.at[i, 'aj']]) - (original_masses[h_bonds.at[i, 'ai']] + original_masses[h_bonds.at[i, 'aj']]) > MASS_ADD_THRESHOLD:
-    #             h_bonds.loc[i, 'k'] -= K_STEP
-    #         else:
-    #             if h_bonds.at[i, 'ni'].startswith('H'):
-    #                 if masses[h_bonds.at[i, 'aj']] - masses[h_bonds.at[i, 'ai']] < MASS_DIFFERENCE_THRESHOLD:
-    #                     masses[h_bonds.at[i, 'aj']] += MASS_STEP
-    #                 else:
-    #                     masses[h_bonds.at[i, 'ai']] += MASS_STEP
-    #                     masses[h_bonds.at[i, 'aj']] -= MASS_STEP
-                       
-    #             if h_bonds.at[i, 'nj'].startswith('H'):
-    #                 if masses[h_bonds.at[i, 'ai']] - masses[h_bonds.at[i, 'aj']] < MASS_DIFFERENCE_THRESHOLD:
-    #                     masses[h_bonds.at[i, 'ai']] += MASS_STEP
-    #                 else:
-    #                     masses[h_bonds.at[i, 'aj']] += MASS_STEP
-    #                     masses[h_bonds.at[i, 'ai']] -= MASS_STEP
-
-    #     for i, row in h_bonds.iterrows():
-    #         h_bonds.loc[i, 'mi'] = masses[row['ai']]
-    #         h_bonds.loc[i, 'mj'] = masses[row['aj']]
-
-    #     h_bonds = calculate_bond_freq(h_bonds)
-    #     h_bonds = h_bonds[ 1 / h_bonds['freq'] <= BOND_PERIOD * dt ]
 
     h_bonds = bonds[bonds['ni'].str.startswith('H') | bonds['nj'].str.startswith('H')]
     masses = symmetrize_masses(h_bonds, masses)
@@ -481,29 +359,25 @@ def hmr_run(topol, dt):
 
     print('Repartitioning remaining non-hydrogen bonds...')
     while not non_h_bonds.empty:
-        print(f'Remainig bonds: {non_h_bonds.shape[0]}')
-        print(f'columns: {non_h_bonds.columns}')
         for i, row in non_h_bonds.iterrows():
             if 1 / freq(non_h_bonds.at[i, 'k'], red_mass(non_h_masses[non_h_bonds.at[i, 'ai']], non_h_masses[non_h_bonds.at[i, 'aj']])) > BOND_PERIOD * dt:
                 continue
-            # if (non_h_masses[non_h_bonds.at[i, 'ai']] + non_h_masses[non_h_bonds.at[i, 'aj']]) - (original_masses[non_h_bonds.at[i, 'ai']] + original_masses[non_h_bonds.at[i, 'aj']]) > MASS_ADD_THRESHOLD:
             if mass_counter[non_h_bonds.at[i, 'ai']] >= MASS_ADD_THRESHOLD or mass_counter[non_h_bonds.at[i, 'aj']] >= MASS_ADD_THRESHOLD:
-                non_h_bonds.at[i, 'k'] -= K_STEP
+                bond_k[f"{non_h_bonds.at[i, 'ai']}-{non_h_bonds.at[i, 'aj']}"] -= K_STEP
             else:
                 non_h_masses[non_h_bonds.at[i, 'ai']] += 0.5 * MASS_STEP
                 non_h_masses[non_h_bonds.at[i, 'aj']] += 0.5 * MASS_STEP
                 mass_counter[non_h_bonds.at[i, 'ai']] += 0.5 * MASS_STEP
                 mass_counter[non_h_bonds.at[i, 'aj']] += 0.5 * MASS_STEP
 
-        for i, row in non_h_bonds.iterrows():
-            non_h_bonds.loc[i, 'mi'] = non_h_masses[row['ai']]
-            non_h_bonds.loc[i, 'mj'] = non_h_masses[row['aj']]
+        non_h_bonds = synchronize_masses(non_h_bonds, [('ai', 'mi'), ('aj', 'mj')], non_h_masses)
+        non_h_bonds = synchronize_k(non_h_bonds, ['ai', 'aj'], bond_k)
         non_h_bonds = calculate_bond_freq(non_h_bonds)
         non_h_bonds = non_h_bonds[ 1 / non_h_bonds['freq'] <= BOND_PERIOD * dt ]
 
     masses = {**masses, **non_h_masses}
 
-    return masses
+    return masses, bond_k, urey_bradley_k, angle_k
 
 def get_masses(topology_df):
     masses = {}
@@ -514,10 +388,22 @@ def get_masses(topology_df):
 
     return masses
 
-def write_topol(topol, new_masses, output):
+def write_topol(topol, new_masses, bond_k, urey_bradley_k, angle_k, output):
     for i, atom in enumerate(topol.atoms):
         if atom.idx+1 in new_masses: 
             topol.atoms[i].mass = new_masses[atom.idx+1]
+
+    for i, _ in enumerate(topol.bonds):
+        if f'{topol.bonds[i].atom1.idx+1}-{topol.bonds[i].atom2.idx+1}' in bond_k:
+            topol.bonds[i].type.k = bond_k[f'{topol.bonds[i].atom1.idx+1}-{topol.bonds[i].atom2.idx+1}']
+
+    for i, _ in enumerate(topol.urey_bradleys):
+        if f'{topol.urey_bradleys[i].atom1.idx+1}-{topol.urey_bradleys[i].atom2.idx+1}' in urey_bradley_k:
+            topol.urey_bradleys[i].type.k = urey_bradley_k[f'{topol.urey_bradleys[i].atom1.idx+1}-{topol.urey_bradleys[i].atom2.idx+1}']
+
+    for i, _ in enumerate(topol.angles):
+        if f'{topol.angles[i].atom1.idx+1}-{topol.angles[i].atom2.idx+1}-{topol.angles[i].atom3.idx+1}' in angle_k:
+            topol.angles[i].type.k = angle_k[f'{topol.angles[i].atom1.idx+1}-{topol.angles[i].atom2.idx+1}-{topol.angles[i].atom3.idx+1}']
 
     if os.path.isfile(output): os.remove(output)
     topol.save(output)
@@ -541,8 +427,8 @@ if __name__ == '__main__':
         topology = pmd.load_file(args.input)
 
     print('Starting HMR...')
-    mass_dict = hmr_run(topology, args.time_step)
+    mass_dict, bond_k, urey_bradley_k, angle_k = hmr_run(topology, args.time_step)
     print(f'Total mass of the protein: {get_protein_total_mass(topology)}')
-    write_topol(topology, mass_dict, args.output)
+    write_topol(topology, mass_dict, bond_k, urey_bradley_k, angle_k, args.output)
 
     print(f'Total mass of the protein after HMR: {get_protein_total_mass(topology)}')
