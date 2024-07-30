@@ -229,7 +229,7 @@ def synchronize_k(df, atom_sets, ks):
 
     return new_df
 
-def hmr_run(topol, dt):
+def hmr_run(topol, dt, MASS_STEP, K_STEP):
     """
     TODO return constants in some way
     """
@@ -359,6 +359,7 @@ def hmr_run(topol, dt):
 
     print('Repartitioning remaining non-hydrogen bonds...')
     while not non_h_bonds.empty:
+        print(f'Remainig non-hydrogen bonds: {non_h_bonds.shape[0]}', end='\r')
         for i, row in non_h_bonds.iterrows():
             if 1 / freq(non_h_bonds.at[i, 'k'], red_mass(non_h_masses[non_h_bonds.at[i, 'ai']], non_h_masses[non_h_bonds.at[i, 'aj']])) > BOND_PERIOD * dt:
                 continue
@@ -415,7 +416,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--input", help="Input topology file", type=str)
     parser.add_argument("-o", "--output", help="Output topology path", type=str)
-    parser.add_argument("-t", "--time_step", help="Time step in fs", type=float)
+    parser.add_argument("-t", "--time_step", help="Time step [fs]", type=float)
+    parser.add_argument("-m", "--mass_step", help="Mass step [amu]", default=1.0, type=float)
+    parser.add_argument("-k", "--k_step", help="Force constant step [kJ/(mol*nm^2)]", default=1000.0, type=float)
+    
     args = parser.parse_args()
     args.time_step = args.time_step * 1e-15
     if not args.output.endswith('.top'):
@@ -427,7 +431,7 @@ if __name__ == '__main__':
         topology = pmd.load_file(args.input)
 
     print('Starting HMR...')
-    mass_dict, bond_k, urey_bradley_k, angle_k = hmr_run(topology, args.time_step)
+    mass_dict, bond_k, urey_bradley_k, angle_k = hmr_run(topology, args.time_step, args.mass_step, args.k_step)
     print(f'Total mass of the protein: {get_protein_total_mass(topology)}')
     write_topol(topology, mass_dict, bond_k, urey_bradley_k, angle_k, args.output)
 
